@@ -887,13 +887,12 @@ async def cb_handler(client: Client, query: CallbackQuery):
     elif query.data.startswith("checksub"):
         try:
             ident, kk, file_id = query.data.split("#")
+            btn = []
             chat = file_id.split("_")[0]
             settings = await get_settings(chat)
-            btn = []
-            dreamx_channels = settings.get('fsub', AUTH_CHANNELS) if settings else AUTH_CHANNELS
-            btn += await is_subscribed(client, query.from_user.id, dreamx_channels)
-            if settings.get('fsub', AUTH_CHANNELS) == AUTH_CHANNELS:
-                btn += await is_req_subscribed(client, query.from_user.id, AUTH_REQ_CHANNELS)
+            fsub_channels = list(dict.fromkeys((settings.get('fsub', []) if settings else [])+ AUTH_CHANNELS)) 
+            btn += await is_subscribed(client, query.from_user.id, fsub_channels)
+            btn += await is_req_subscribed(client, query.from_user.id, AUTH_REQ_CHANNELS)
             if btn:
                 btn.append([InlineKeyboardButton("♻️ ᴛʀʏ ᴀɢᴀɪɴ ♻️", callback_data=f"checksub#{kk}#{file_id}")])
                 try:
@@ -902,14 +901,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     pass
                 await query.answer(
                     f"👋 Hello {query.from_user.first_name},\n\n"
-                    "Yᴏᴜ ʜᴀᴠᴇ ɴᴏᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴜᴘᴅᴀᴛᴇ Cʜᴀɴɴᴇʟs.\n"
-                    "Pʟᴇᴀsᴇ ᴊᴏɪɴ ᴇᴀᴄʜ ᴏɴᴇ ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ.\n",
+                    "🛑 Yᴏᴜ ʜᴀᴠᴇ ɴᴏᴛ ᴊᴏɪɴᴇᴅ ᴀʟʟ ʀᴇǫᴜɪʀᴇᴅ ᴜᴘᴅᴀᴛᴇ Cʜᴀɴɴᴇʟs.\n"
+                    "👉 Pʟᴇᴀsᴇ ᴊᴏɪɴ ᴇᴀᴄʜ ᴏɴᴇ ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ.\n",
                     show_alert=True
                 )
                 return
             await query.answer(url=f"https://t.me/{temp.U_NAME}?start={kk}_{file_id}")
             await query.message.delete()
-
         except Exception as e:
             await log_error(client, f"❌ Error in checksub callback:\n\n{repr(e)}")
             logger.error(f"❌ Error in checksub callback:\n\n{repr(e)}")

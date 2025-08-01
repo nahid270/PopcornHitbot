@@ -79,8 +79,6 @@ async def is_req_subscribed(bot, user_id, rqfsub_channels):
     return btn
 
 
-
-
 async def is_subscribed(bot, user_id, fsub_channels):
     btn = []
     for channel_id in fsub_channels:
@@ -95,8 +93,8 @@ async def is_subscribed(bot, user_id, fsub_channels):
                 logger.warning(f"Failed to create invite for {channel_id}: {e}")
         except Exception as e:
             logger.exception(f"is_subscribed error for {channel_id}: {e}")
+            pass
     return btn
-
 
 async def is_check_admin(bot, chat_id, user_id):
     try:
@@ -316,11 +314,6 @@ async def save_group_settings(group_id, key, value):
     current.update({key: value})
     temp.SETTINGS.update({group_id: current})
     await db.update_settings(group_id, current)
-
-async def save_default_settings(id):
-    await db.reset_group_settings(id)
-    current = await db.get_settings(id)
-    temp.SETTINGS.update({id: current})
 
 def clean_filename(file_name):
     prefixes = ('[', '@', 'www.')
