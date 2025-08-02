@@ -696,7 +696,7 @@ async def filter_seasons_cb_handler(client: Client, query: CallbackQuery):
         query_input = generate_season_variations(search, season_number)
         search_final = " | ".join(query_input)
 
-    BUTTONS[key] = search
+    BUTTONS[key] = search_final
     try:
         if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
             return await query.answer("⚠️ Not your request", show_alert=True)
