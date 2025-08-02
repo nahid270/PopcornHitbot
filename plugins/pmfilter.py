@@ -880,7 +880,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
     elif query.data.startswith("autofilter_delete"):
         await Media.collection.drop()
-        await Media2.collection.drop()
+        if MULTIPLE_DB:    
+            await Media2.collection.drop()
         await query.answer("Eᴠᴇʀʏᴛʜɪɴɢ's Gᴏɴᴇ")
         await query.message.edit('ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ ᴀʟʟ ɪɴᴅᴇxᴇᴅ ꜰɪʟᴇꜱ ✅')
 
