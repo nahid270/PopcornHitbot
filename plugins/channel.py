@@ -211,8 +211,8 @@ async def media_handler(bot, message):
     media.file_type = next(ft for ft in ("document", "video", "audio") if hasattr(message, ft))
     media.caption = message.caption or ""
     success, info = await save_file(media)
-    # if not success:
-    #     return
+    if not success:
+        return
 
     try:
         if await db.movie_update_status(bot.me.id):
