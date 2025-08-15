@@ -216,8 +216,7 @@ Nᴀᴍᴇ : {}
 
 Mᴇꜱꜱᴀɢᴇ : <b>{}</b>"""
     
-    CAPTION = """<b><a href="https://t.me/Tdreamxbotz'{file_name}</a></b>\n\n<b>⚜️ Powered By : <a href="https://t.me/TGLinkBase">[ TGLinkBase ]</a></b>"""
-
+    CAPTION = """<b><a href="https://t.me/TGLinkBase">{file_name}</a></b>\n\n<b>⚜️ Powered By : <a href="https://t.me/TGLinkBase">[ TGLinkBase ]</a></b>"""
     
     MOVIE_UPDATE_NOTIFY_TXT = """
 </b><a href={poster_url}>📥</a><a href={imdb_url}>New {tag} Added</a></b>
