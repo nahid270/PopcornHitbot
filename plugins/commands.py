@@ -222,9 +222,10 @@ async def start(client, message):
     
     data = message.command[1]
     try:
-        pre, grp_id, file_id = data.split('_', 2)
-    except Exception:
-        pre, grp_id, file_id = "", 0, data
+        _, grp_id, file_id = data.split("_", 2)
+        grp_id = int(grp_id)
+    except:
+        _, grp_id, file_id = "", 0, data
 
     if not await db.has_premium_access(message.from_user.id): 
         try:
@@ -1055,7 +1056,7 @@ async def set_tutorial(client, message: Message):
     except IndexError:
         return await message.reply_text(
             f"<b>ᴄᴏᴍᴍᴀɴᴅ ɪɴᴄᴏᴍᴘʟᴇᴛᴇ !!\n\nᴜꜱᴇ ʟɪᴋᴇ ᴛʜɪꜱ -</b>\n\n"
-            f"<code>/{message.command[0]} https://t.me/TGLinkBase</code>"
+            f"<code>/{message.command[0]} https://t.me/dreamxbotz</code>"
         )
     if message.command[0] == "set_tutorial":
         tutorial_key = "tutorial"
