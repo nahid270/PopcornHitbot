@@ -101,15 +101,15 @@ LOG_API_CHANNEL = int(environ.get('LOG_API_CHANNEL', '-1002602055892')) #If Anyo
 VERIFY_IMG = environ.get("VERIFY_IMG", "https://telegra.ph/file/9ecc5d6e4df5b83424896.jpg")
 
 TUTORIAL = environ.get("TUTORIAL", "https://t.me/HowtoDowlnoad/3")   # Tutorial link for verification
-TUTORIAL_2 = environ.get("TUTORIAL_2", "https://t.me/HowtoDowlnoad/6")   # Second tutorial link for verification
+TUTORIAL_2 = environ.get("TUTORIAL_2", "https://t.me/HowtoDowlnoad/3")   # Second tutorial link for verification
 TUTORIAL_3 = environ.get("TUTORIAL_3", "https://t.me/HowtoDowlnoad/24")   # Third tutorial link for verification
 
 # Verification (Must Fill All Veriables. Else You Got Error
 SHORTENER_API = environ.get("SHORTENER_API", "8490815a50aacac0e54269449473c73d4700e532") # Shortener API key
 SHORTENER_WEBSITE = environ.get("SHORTENER_WEBSITE", "teraboxlinks.com") # Shortener website
 
-SHORTENER_API2 = environ.get("SHORTENER_API2", "5da5133c9c628aea95d773fa14104754c7e62b36")  # Shortener API key for second website
-SHORTENER_WEBSITE2 = environ.get("SHORTENER_WEBSITE2", "adrinolinks.in") # Shortener website for second website
+SHORTENER_API2 = environ.get("SHORTENER_API2", "8490815a50aacac0e54269449473c73d4700e532")  # Shortener API key for second website
+SHORTENER_WEBSITE2 = environ.get("SHORTENER_WEBSITE2", "teraboxlinks.com") # Shortener website for second website
 
 SHORTENER_API3 = environ.get("SHORTENER_API3", "89ff7ed9d4b4aaaf7a7158a590043d3cd02ae488")  
 SHORTENER_WEBSITE3 = environ.get("SHORTENER_WEBSITE3", "arolinks.com") # Shortener website for third website
