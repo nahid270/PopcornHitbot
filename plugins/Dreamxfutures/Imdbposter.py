@@ -181,7 +181,7 @@ async def get_movie_detailsx(query, id=False, file=None):
     original_language = data.get('images', {}).get('original_language')
     poster_url = data.get('poster_url')
     if not poster_url:
-        for key in ('en', original_language, 'no_lang'):
+        for key in ('en', original_language, 'xx'):
             if key and posters.get(key):
                 poster_url = posters[key][0]
                 break
@@ -190,11 +190,10 @@ async def get_movie_detailsx(query, id=False, file=None):
     backdrops = data.get('images', {}).get('backdrops', {})
     original_language = data.get('images', {}).get('original_language')
     backdrop_url = None
-    for key in ('en', original_language, 'no_lang'):
+    for key in ('en', original_language, 'xx'):
         if key and backdrops.get(key):
             backdrop_url = backdrops[key][0]
             break
     details['backdrop_url'] = backdrop_url
 
     return details
-
