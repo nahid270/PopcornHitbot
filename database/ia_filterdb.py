@@ -13,6 +13,7 @@ from info import *
 from utils import get_settings, save_group_settings
 from datetime import datetime, timedelta
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -137,88 +138,99 @@ async def save_file(media):
     logger.info(f"[SUCCESS] '{file_name}' saved to {target_db} DB.")
     return True, 1
 
-
-async def get_search_results(
-    chat_id, query, file_type=None, max_results=10, offset=0, filter=False
-):
+async def get_search_results(chat_id, query, file_type=None, max_results=None, offset=0, filter=False):
     if chat_id is not None:
         settings = await get_settings(int(chat_id))
-        try:
-            max_results = 10 if settings.get("max_btn") else int(MAX_B_TN)
-        except KeyError:
-            await save_group_settings(int(chat_id), "max_btn", False)
-            settings = await get_settings(int(chat_id))
-            max_results = 10 if settings.get("max_btn") else int(MAX_B_TN)
-    if isinstance(query, list):
-        regex_list = []
-        for q in query:
-            q = q.strip()
-            if not q:
-                continue
-            if " " not in q:
-                raw = r"(\b|[\.\+\-_])" + re.escape(q) + r"(\b|[\.\+\-_])"
-            else:
-                raw = re.escape(q).replace(r"\ ", r".*[\s\.\+\-_()]")
-            regex_list.append(re.compile(raw, re.IGNORECASE))
+        if max_results is None:
+            try:
+                max_results = 10 if settings.get("max_btn") else int(MAX_B_TN)
+            except KeyError:
+                await save_group_settings(int(chat_id), "max_btn", True)
+                settings = await get_settings(int(chat_id))
+                max_results = 10 if settings.get("max_btn") else int(MAX_B_TN)
 
+    # This is the new "middle-ground" regex logic for speed and flexibility
+    if isinstance(query, list):
+        # This part handles season searches etc., where you need to match any of the full phrases.
+        raw_pattern = '|'.join(re.escape(q.strip()) for q in query if q.strip())
+        regex_list = [re.compile(raw_pattern, re.IGNORECASE)] if raw_pattern else []
+        
         if USE_CAPTION_FILTER:
-            filter_mongo = {
-                "$or": (
-                    [{"file_name": r} for r in regex_list]
-                    + [{"caption": r} for r in regex_list]
-                )
-            }
+            filter_mongo = {"$or": ([{"file_name": r} for r in regex_list] + [{"caption": r} for r in regex_list])}
         else:
             filter_mongo = {"$or": [{"file_name": r} for r in regex_list]}
-
     else:
         query = query.strip()
         if not query:
-            raw_pattern = "."
-        elif " " not in query:
-            raw_pattern = r"(\b|[\.\+\-_])" + query + r"(\b|[\.\+\-_])"
+            return [], None, 0
+            
+        # This is the key change for balancing speed and flexibility
+        if ' ' in query:
+            # For multi-word queries, allow spaces, dots, or hyphens between words.
+            words = [re.escape(word) for word in query.split()]
+            raw_pattern = r'.*'.join(words)
         else:
-            raw_pattern = query.replace(
-                " ", r".*[\s\.\+\-_()\[\]]" 
-            )
+            # For single-word queries, use word boundaries for accuracy.
+            raw_pattern = r"\b" + re.escape(query) + r"\b"
 
         try:
             regex = re.compile(raw_pattern, flags=re.IGNORECASE)
         except re.error:
-            return [], "", 0
+            return [], None, 0
 
         if USE_CAPTION_FILTER:
             filter_mongo = {"$or": [{"file_name": regex}, {"caption": regex}]}
         else:
             filter_mongo = {"file_name": regex}
+
     if file_type:
         filter_mongo["file_type"] = file_type
-    total_results = await Media.count_documents(filter_mongo)
-    if MULTIPLE_DB:
-        total_results += await Media2.count_documents(filter_mongo)
+    
+    # The rest of the function remains the same, using parallel queries.
+    if ULTRA_FAST_MODE:
+        limit = max_results + 1
+        find_tasks = [Media.find(filter_mongo).sort("$natural", -1).skip(offset).limit(limit).to_list(length=limit)]
+        if MULTIPLE_DB:
+            find_tasks.append(Media2.find(filter_mongo).sort("$natural", -1).skip(offset).limit(limit).to_list(length=limit))
+        
+        results = await asyncio.gather(*find_tasks)
+        files = results[0]
+        if MULTIPLE_DB and len(results) > 1:
+            files.extend(results[1])
+        
+        files = files[:limit]
 
-    # if max_results % 2:
-    #     max_results += 1
+        has_next_page = len(files) > max_results
+        if has_next_page:
+            files = files[:-1]
 
-    cursor1 = (
-        Media.find(filter_mongo).sort("$natural", -1).skip(offset).limit(max_results)
-    )
-    files1 = await cursor1.to_list(length=max_results)
-
-    if MULTIPLE_DB:
-        remaining = max_results - len(files1)
-        cursor2 = (
-            Media2.find(filter_mongo).sort("$natural", -1).skip(offset).limit(remaining)
-        )
-        files2 = await cursor2.to_list(length=remaining)
-        files = files1 + files2
+        next_offset = offset + len(files) if has_next_page else ""
+        total_results = offset + len(files) + (1 if has_next_page else 0)
     else:
-        files = files1
-    next_offset = offset + len(files)
-    if next_offset >= total_results:
-        next_offset = ""
-    return files, next_offset, total_results
+        count_tasks = [Media.count_documents(filter_mongo)]
+        find_tasks = [Media.find(filter_mongo).sort("$natural", -1).skip(offset).limit(max_results).to_list(length=max_results)]
 
+        if MULTIPLE_DB:
+            count_tasks.append(Media2.count_documents(filter_mongo))
+            find_tasks.append(Media2.find(filter_mongo).sort("$natural", -1).skip(offset).limit(max_results).to_list(length=max_results))
+        
+        count_results, find_results = await asyncio.gather(
+            asyncio.gather(*count_tasks),
+            asyncio.gather(*find_tasks)
+        )
+        
+        total_results = sum(count_results)
+        files = find_results[0]
+        if MULTIPLE_DB and len(find_results) > 1:
+            files.extend(find_results[1])
+        
+        files = files[:max_results]
+        
+        next_offset = offset + len(files)
+        if next_offset >= total_results:
+            next_offset = ""
+
+    return files, next_offset, total_results
 
 async def get_bad_files(query, file_type=None):
     query = query.strip()
@@ -252,12 +264,18 @@ async def get_bad_files(query, file_type=None):
 
 async def get_file_details(query):
     filter = {"file_id": query}
-    cursor = Media.find(filter)
-    filedetails = await cursor.to_list(length=1)
-    if not filedetails:
-        cursor2 = Media2.find(filter)
-        filedetails = await cursor2.to_list(length=1)
-    return filedetails
+    
+    tasks = [Media.find(filter).to_list(length=1)]
+    if MULTIPLE_DB:
+        tasks.append(Media2.find(filter).to_list(length=1))
+        
+    results = await asyncio.gather(*tasks)
+    
+    for filedetails in results:
+        if filedetails:
+            return filedetails
+            
+    return []
 
 
 def encode_file_id(s: bytes) -> str:
