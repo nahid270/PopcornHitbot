@@ -1,7 +1,8 @@
 import os
 from pyrogram import Client, filters, enums
 from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant, MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty
-from utils import extract_user, get_file_id, get_poster
+from info import LANDSCAPE_POSTER, TMDB_ON_SEARCH
+from utils import extract_user, get_file_id, get_poster, get_posterx
 from datetime import datetime
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 import logging
