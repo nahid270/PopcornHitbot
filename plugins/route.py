@@ -17,6 +17,10 @@ from info import *
 
 routes = web.RouteTableDef()
 
+@routes.get("/favicon.ico")
+async def favicon_route_handler(request):
+    return web.FileResponse('dreamxbotz/template/favicon.ico')
+
 @routes.get("/", allow_head=True)
 async def root_route_handler(request):
     return web.json_response("dreamxbotz")
