@@ -1,7 +1,7 @@
 import re
 import os
 import logging
-from info import  *
+from info import *
 from imdb import Cinemagoer 
 import asyncio
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,6 +14,8 @@ from database.users_chats_db import db
 from bs4 import BeautifulSoup
 import requests
 from shortzy import Shortzy
+
+from plugins.Dreamxfutures.Imdbposter import get_movie_detailsx
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -81,19 +83,29 @@ async def is_req_subscribed(bot, user_id, rqfsub_channels):
 
 async def is_subscribed(bot, user_id, fsub_channels):
     btn = []
-    for channel_id in fsub_channels:
+    
+    async def check_channel(channel_id):
         try:
-            chat = await bot.get_chat(int(channel_id))
+            # No need to get chat object separately
             await bot.get_chat_member(channel_id, user_id)
         except UserNotParticipant:
             try:
-                invite = await bot.create_chat_invite_link(channel_id, creates_join_request=False)
-                btn.append([InlineKeyboardButton(f"📢 Join {chat.title}", url=invite.invite_link)])
+                chat = await bot.get_chat(int(channel_id))
+                invite_link = await bot.create_chat_invite_link(channel_id)
+                return InlineKeyboardButton(f"📢 Join {chat.title}", url=invite_link.invite_link)
             except Exception as e:
                 logger.warning(f"Failed to create invite for {channel_id}: {e}")
         except Exception as e:
             logger.exception(f"is_subscribed error for {channel_id}: {e}")
-            pass
+        return None
+
+    tasks = [check_channel(channel_id) for channel_id in fsub_channels]
+    results = await asyncio.gather(*tasks)
+
+    for button in results:
+        if button:
+            btn.append([button])
+            
     return btn
 
 async def is_check_admin(bot, chat_id, user_id):
@@ -242,7 +254,18 @@ async def get_poster(query, bulk=False, id=False, file=None):
         plot = movie.get('plot outline')
     if plot and len(plot) > 800:
         plot = plot[0:800] + "..."
-
+    STANDARD_GENRES = {
+        'Action', 'Adventure', 'Animation', 'Biography', 'Comedy', 'Crime', 'Documentary',
+        'Drama', 'Family', 'Fantasy', 'Film-Noir', 'History', 'Horror', 'Music',
+        'Musical', 'Mystery', 'Romance', 'Sci-Fi', 'Sport', 'Thriller', 'War', 'Western'
+    }
+    raw_genres = movie.get("genres", "N/A")
+    if isinstance(raw_genres, str):
+        genre_list = [g.strip() for g in raw_genres.split(",")]
+        genres = ", ".join(g for g in genre_list if g in STANDARD_GENRES) or "N/A"
+    else:
+        genres = ", ".join(g for g in raw_genres if g in STANDARD_GENRES) or "N/A"
+        
     return {
         'title': movie.get('title'),
         'votes': movie.get('votes'),
@@ -266,11 +289,74 @@ async def get_poster(query, bulk=False, id=False, file=None):
         "distributors": list_to_str(movie.get("distributors")),
         'release_date': date,
         'year': movie.get('year'),
-        'genres': list_to_str(movie.get("genres")),
+        'genres': genres,
         'poster': movie.get('full-size cover url'),
         'plot': plot,
         'rating': str(movie.get("rating")),
         'url':f'https://www.imdb.com/title/tt{movieid}'
+    }
+    
+async def get_posterx(query, bulk=False, id=False, file=None):
+    """
+    Fetches movie details from TMDB using the get_movie_detailsx helper
+    and formats the output to be compatible with the original get_poster function.
+    """
+    if not id:
+        # The get_movie_detailsx function handles searching by query string.
+        details = await get_movie_detailsx(query, file=file)
+    else:
+        # Assumes the 'id' is a TMDB ID or IMDb ID that get_movie_detailsx can handle.
+        details = await get_movie_detailsx(query, id=True)
+
+    if not details or details.get("error"):
+        return None
+    
+    plot = ""
+    if not LONG_IMDB_DESCRIPTION:
+        plot = details.get('plot')
+        if plot and len(plot) > 0:
+            plot = plot[0]
+    else:
+        plot = details.get('plot outline')
+    if plot and len(plot) > 800:
+        plot = plot[0:800] + "..."
+
+    # --- Mapping TMDB keys to the original IMDb key format ---
+
+    def list_to_str(val):
+        if isinstance(val, list):
+            return ", ".join(str(x) for x in val if x)
+        return str(val) if val else ""
+
+    return {
+        'title': details.get('title'),
+        'votes': details.get('votes'),
+        "aka": None,  # Not typically provided by TMDB in this format
+        "seasons": details.get('seasons'),
+        "box_office": details.get('box_office'),
+        'localized_title': details.get('localized_title'),
+        'kind': 'movie' if 'movie' in details.get('tmdb_url', '') else 'tv series',
+        "imdb_id": details.get('imdb_id'),
+        "cast": list_to_str(details.get("cast")),
+        "runtime": list_to_str(details.get("runtime")),
+        "countries": list_to_str(details.get("countries")),
+        "certificates": list_to_str(details.get("certificates")),
+        "languages": list_to_str(details.get("languages")),
+        "director": list_to_str(details.get("director")),
+        "writer": list_to_str(details.get("writer")),
+        "producer": list_to_str(details.get("producer")),
+        "composer": list_to_str(details.get("composer")),
+        "cinematographer": list_to_str(details.get("cinematographer")),
+        "music_team": None, # Not provided by the TMDB API wrapper
+        "distributors": list_to_str(details.get("distributors")),
+        'release_date': details.get('release_date'),
+        'year': details.get('year'),
+        'genres': list_to_str(details.get("genres")),
+        'poster': details.get('poster_url'),
+        'backdrop' : details.get('backdrop_url'),
+        'plot': plot,
+        'rating': str(details.get("rating", "N/A")),
+        'url': details.get('tmdb_url')
     }
     
 async def search_gagala(text):
@@ -734,7 +820,7 @@ async def get_cap(settings, remaining_seconds, files, query, total_results, sear
             IMDB_CAP = temp.IMDB_CAP.get(query.from_user.id)
             if IMDB_CAP:
                 cap = IMDB_CAP
-                cap += "\n\n🧾 <u>Your Requested Files Are Here</u> 👇\n\n</b>"
+                cap += "\n\n<u>Your Requested Files Are Here</u>\n\n</b>"
                 for idx, file in enumerate(files, start=offset + 1):
                         cap += (
                             f"<b>{idx}. "
@@ -745,7 +831,10 @@ async def get_cap(settings, remaining_seconds, files, query, total_results, sear
                             f"</a></b>"
                         )
             else:
-                imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
+                if settings["imdb"]:
+                    imdb = await get_posterx(search, file=(files[0]).file_name) if TMDB_ON_SEARCH else await get_poster(search, file=(files[0]).file_name)
+                else:
+                    imdb = None
                 if imdb:
                     TEMPLATE = script.IMDB_TEMPLATE_TXT
                     cap = TEMPLATE.format(
@@ -779,6 +868,7 @@ async def get_cap(settings, remaining_seconds, files, query, total_results, sear
                         url=imdb['url'],
                         **locals()
                     )
+                    
                     for idx, file in enumerate(files, start=offset+1):
                         cap += (
                             f"<b>{idx}. "
@@ -789,14 +879,22 @@ async def get_cap(settings, remaining_seconds, files, query, total_results, sear
                             f"</a></b>"
                         )
                 else:
-                    cap = (
-                        f"<b>🏷 ᴛɪᴛʟᴇ : <code>{search}</code>\n"
-                        f"🧱 ᴛᴏᴛᴀʟ ꜰɪʟᴇꜱ : <code>{total_results}</code>\n"
-                        f"⏰ ʀᴇsᴜʟᴛ ɪɴ : <code>{remaining_seconds} Sᴇᴄᴏɴᴅs</code>\n\n"
-                        f"📝 ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {query.from_user.mention}\n"
-                        f"⚜️ ᴘᴏᴡᴇʀᴇᴅ ʙʏ :⚡ {query.message.chat.title}\n</b>"
-                    )
-                    cap += "\n\n🧾 <u>Your Requested Files Are Here</u> 👇 👇\n\n</b>"
+                    if ULTRA_FAST_MODE:
+                        cap = (
+                            f"<b>🏷 ᴛɪᴛʟᴇ : <code>{search}</code>\n"
+                            f"⏰ ʀᴇsᴜʟᴛ ɪɴ : <code>{remaining_seconds} Sᴇᴄᴏɴᴅs</code>\n\n"
+                            f"📝 ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {query.from_user.mention}\n"
+                            f"⚜️ ᴘᴏᴡᴇʀᴇᴅ ʙʏ :⚡ {query.message.chat.title or temp.B_LINK or 'ᴅʀᴇᴀᴍxʙᴏᴛᴢ'}\n</b>"
+                        )
+                    else:
+                        cap = (
+                            f"<b>🏷 ᴛɪᴛʟᴇ : <code>{search}</code>\n"
+                            f"🧱 ᴛᴏᴛᴀʟ ꜰɪʟᴇꜱ : <code>{total_results}</code>\n"
+                            f"⏰ ʀᴇsᴜʟᴛ ɪɴ : <code>{remaining_seconds} Sᴇᴄᴏɴᴅs</code>\n\n"
+                            f"📝 ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {query.from_user.mention}\n"
+                            f"⚜️ ᴘᴏᴡᴇʀᴇᴅ ʙʏ :⚡ {query.message.chat.title or temp.B_LINK or 'ᴅʀᴇᴀᴍxʙᴏᴛᴢ'}\n</b>"
+                        )
+                    cap += "\n\n<u>Your Requested Files Are Here</u> \n\n</b>"
                     for idx, file in enumerate(files, start=offset + 1):
                         cap += (
                             f"<b>{idx}. "
@@ -808,13 +906,22 @@ async def get_cap(settings, remaining_seconds, files, query, total_results, sear
                         )
 
         else:
-            cap = (
-                f"<b>🏷 ᴛɪᴛʟᴇ : <code>{search}</code>\n"
-                f"🧱 ᴛᴏᴛᴀʟ ꜰɪʟᴇꜱ : <code>{total_results}</code>\n\n"
-                f"📝 ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {query.from_user.mention}\n"
-                f"⚜️ ᴘᴏᴡᴇʀᴇᴅ ʙʏ : ⚡ {query.message.chat.title or temp.B_LINK or 'ᴅʀᴇᴀᴍxʙᴏᴛᴢ'}\n</b>"
-            )
-            cap += "\n\n🧾 <u>Your Requested Files Are Here</u> 👇\n\n</b>"
+            if ULTRA_FAST_MODE:
+                cap = (
+                    f"<b>🏷 ᴛɪᴛʟᴇ : <code>{search}</code>\n"
+                    f"⏰ ʀᴇsᴜʟᴛ ɪɴ : <code>{remaining_seconds} Sᴇᴄᴏɴᴅs</code>\n\n"
+                    f"⚜️ ᴘᴏᴡᴇʀᴇᴅ ʙʏ : ⚡ {query.message.chat.title or temp.B_LINK or 'ᴅʀᴇᴀᴍxʙᴏᴛᴢ'}\n</b>"
+                )
+            else:
+                cap = (
+                    f"<b>🏷 ᴛɪᴛʟᴇ : <code>{search}</code>\n"
+                    f"🧱 ᴛᴏᴛᴀʟ ꜰɪʟᴇꜱ : <code>{total_results}</code>\n"
+                    f"⏰ ʀᴇsᴜʟᴛ ɪɴ : <code>{remaining_seconds} Sᴇᴄᴏɴᴅs</code>\n\n"
+                    f"📝 ʀᴇǫᴜᴇsᴛᴇᴅ ʙʏ : {query.from_user.mention}\n"
+                    f"⚜️ ᴘᴏᴡᴇʀᴇᴅ ʙʏ : ⚡ {query.message.chat.title or temp.B_LINK or 'ᴅʀᴇᴀᴍxʙᴏᴛᴢ'}\n</b>"
+                )
+
+            cap += "\n\n<u>Your Requested Files Are Here</u>\n\n</b>"
             for idx, file in enumerate(files, start=offset):
                         cap += (
                             f"<b>{idx}. "
@@ -828,4 +935,3 @@ async def get_cap(settings, remaining_seconds, files, query, total_results, sear
     except Exception as e:
         logging.error(f"Error in get_cap: {e}")
         pass
-       
