@@ -1,12 +1,13 @@
 import re
 import logging
 import asyncio
+import textwrap
 from datetime import datetime
 from collections import defaultdict
 from plugins.Dreamxfutures.Imdbposter import get_movie_detailsx, fetch_image, get_movie_details
 from database.users_chats_db import db
 from pyrogram import Client, filters, enums
-from info import CHANNELS, MOVIE_UPDATE_CHANNEL, LINK_PREVIEW, ABOVE_PREVIEW, BAD_WORDS, LANDSCAPE_POSTER, TMDB_POSTER
+from info import CHANNELS, MOVIE_UPDATE_CHANNEL, LINK_PREVIEW, ABOVE_PREVIEW, BAD_WORDS, TMDB_POSTER
 from Script import script
 from database.ia_filterdb import save_file
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 IGNORE_WORDS = {
     "rarbg", "dub", "sub", "sample", "mkv", "aac", "combined",
     "action", "adventure", "animation", "biography", "comedy", "crime", 
-    "documentary", "drama", "family", "fantasy", "film-noir", "history", 
+    "documentary", "drama", "fantasy", "film-noir", "history", 
     "horror", "music", "musical", "mystery", "romance", "sci-fi", "sport", 
     "thriller", "war", "western", "hdcam", "hdtc", "camrip", "ts", "tc", 
     "telesync", "dvdscr", "dvdrip", "predvd", "webrip", "web-dl", "tvrip", 
@@ -102,7 +103,7 @@ def remove_ignored_words(text: str) -> str:
 
 def get_qualities(text: str) -> str:
     qualities = QUALITY_PATTERN.findall(text)
-    return ", ".join(qualities) if qualities else "N/A"
+    return ", ".join(qualities) if qualities else "Unknown"
 
 def extract_ott_platform(text: str) -> str:
     text = text.lower()
@@ -141,11 +142,11 @@ def extract_media_info(filename: str, caption: str):
     season = episode = year = None
     tag = "#MOVIE"
     processed_raw = base_raw = filename
-    quality = get_qualities(caption_clean) or get_qualities(filename.lower()) or "N/A"
+    quality = get_qualities(caption_clean) or get_qualities(filename.lower()) or "Unknown"
     ott_platform = extract_ott_platform(f"{filename} {caption_clean}")
 
     lang_keys = {k for k in CAPTION_LANGUAGES if k in caption_clean or k in filename.lower()}
-    language = ", ".join(sorted({CAPTION_LANGUAGES[k] for k in lang_keys})) if lang_keys else "N/A"
+    language = ", ".join(sorted({CAPTION_LANGUAGES[k] for k in lang_keys})) if lang_keys else "Unknown"
 
     season, episode = extract_season_episode(filename)
     if season is not None:
@@ -269,14 +270,24 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
             genres = ", ".join(g for g in genre_list if g in STANDARD_GENRES) or "N/A"
         else:
             genres = ", ".join(g for g in raw_genres if g in STANDARD_GENRES) or "N/A"
+        
+        # Get Story/Plot
+        plot = details.get("overview") or details.get("plot") or "Story not available."
+        
+        # Poster Logic: Always prefer main poster for Portrait Look
+        poster_url = details.get("poster_url")
+        if not poster_url:
+             poster_url = details.get("backdrop_url")
+
         movie_doc = {
             "_id": base_name,
             "files": [file_data],
-            "poster_url": details.get("backdrop_url") if LANDSCAPE_POSTER and TMDB_POSTER and not error_tmdb else details.get("poster_url"),
+            "poster_url": poster_url,
             "genres": genres,
+            "plot": plot,
             "rating": details.get("rating", "N/A"),
-            "imdb_url": details.get("url", "")if not TMDB_POSTER else details.get("tmdb_url"),
-            "year": media_info["year"] or details.get("year"),
+            "imdb_url": details.get("url", "") if not TMDB_POSTER else details.get("tmdb_url"),
+            "year": media_info["year"] or details.get("year") or "N/A",
             "tag": media_info["tag"],
             "ott_platform": media_info["ott_platform"],
             "message_id": None,
@@ -309,7 +320,6 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
 
 async def send_movie_update(bot, base_name):
     max_retries = 3
-    base_delay = 5
     for attempt in range(max_retries):
         try:
             movie_doc = await db.movie_updates.find_one({"_id": base_name})
@@ -324,8 +334,9 @@ async def send_movie_update(bot, base_name):
                 )
             ]])
 
+            # Portrait poster size roughly (853, 1280) or similar ratio
             if movie_doc.get("poster_url") and not LINK_PREVIEW:
-                resized_poster = await fetch_image(movie_doc["poster_url"], size=(2560, 1440) if LANDSCAPE_POSTER and TMDB_POSTER and not error_tmdb else (853, 1280))
+                resized_poster = await fetch_image(movie_doc["poster_url"], size=(853, 1280))
                 msg = await bot.send_photo(
                     chat_id=MOVIE_UPDATE_CHANNEL,
                     photo=resized_poster,
@@ -418,6 +429,14 @@ async def update_movie_message(bot, base_name):
     except Exception as e:
         logger.error(f"Failed to update movie message: {e}")
 
+# Updated to just clean text without adding borders, to fit new design
+def format_plot(text):
+    if not text:
+        return "Story not available."
+    if len(text) > 300:
+        return text[:300] + "..."
+    return text
+
 def generate_movie_message(movie_doc, base_name):
     all_qualities = set()
     all_languages = set()
@@ -426,9 +445,9 @@ def generate_movie_message(movie_doc, base_name):
     episodes_by_season = defaultdict(set)
 
     for file in movie_doc["files"]:
-        if file["quality"] != "N/A":
+        if file["quality"] != "Unknown" and file["quality"] != "N/A":
             all_qualities.update(q.strip() for q in file["quality"].split(",") if q.strip())
-        if file["language"] != "N/A":
+        if file["language"] != "Unknown" and file["language"] != "N/A":
             all_languages.update(l.strip() for l in file["language"].split(",") if l.strip())
         if file["ott_platform"] != "N/A":
             platforms = [p.strip() for p in file["ott_platform"].split("|") if p.strip()]
@@ -441,6 +460,8 @@ def generate_movie_message(movie_doc, base_name):
             episodes_by_season[season].add(episode)
 
     primary_tag = "#SERIES" if "#SERIES" in all_tags else "#MOVIE"
+    
+    # Updated Episode Block Logic for New Design
     epi_block = ""
     if episodes_by_season:
         episode_lines = []
@@ -472,27 +493,46 @@ def generate_movie_message(movie_doc, base_name):
                 collapsed.append(str(start) if start == end else f"{start}-{end}")
 
             all_ep_parts = collapsed + sorted(ranges, key=lambda s: int(s.split("-")[0]))
-            episode_lines.append(f"S{int(season)}: {', '.join(all_ep_parts)}")
+            # Using '┠' to match the new design
+            episode_lines.append(f"┠ 📺 <b>Season {int(season)}:</b> {', '.join(all_ep_parts)}")
 
         epi_str = "\n".join(episode_lines)
         if epi_str:
-            epi_block = f"📺 ᴇᴘɪsᴏᴅᴇs : <b>\n{epi_str}</b>"
+            epi_block = f"\n{epi_str}"
 
     genres = movie_doc.get("genres", "N/A")
-    quality_str = ", ".join(sorted(all_qualities)) if all_qualities else "N/A"
-    language_str = ", ".join(sorted(all_languages)) if all_languages else "N/A"
-    ott_str = ", ".join(sorted(all_ott_platforms)) if all_ott_platforms else "N/A"
+    quality_str = ", ".join(sorted(all_qualities)) if all_qualities else "Unknown"
+    language_str = ", ".join(sorted(all_languages)) if all_languages else "Unknown"
+    year = movie_doc.get("year", "N/A")
+    
+    # Rating Logic
+    rating = movie_doc.get("rating", "N/A")
+    if rating != "N/A":
+        rating = f"⭐️ {rating}/10"
 
-    return script.MOVIE_UPDATE_NOTIFY_TXT.format(
-        poster_url=movie_doc.get("poster_url", ""),
-        imdb_url=movie_doc.get("imdb_url", ""),
-        filename=base_name,
-        tag=primary_tag,
-        genres=genres,
-        ott=ott_str,
-        quality=quality_str,
-        language=language_str,
-        episodes=epi_block,
-        rating=movie_doc.get("rating", "N/A"),
-        search_link=temp.B_LINK
-    )
+    # Plot Logic
+    plot_text = format_plot(movie_doc.get("plot", "Story not available"))
+
+    # New Premium Glass Format
+    return f"""
+✨ <b>Just Arrived on Channel</b> ✨
+
+┏━━━━━━━━━━━━━━━━━━━┫
+┃🎬 <b>Title:</b> {base_name}
+┃⭐️ <b>Rating:</b> {rating}
+┃🎭 <b>Genre:</b> {genres}
+┃📅 <b>Year:</b> {year}
+┗━━━━━━━━━━━━━━━━━━━┫
+
+<b>⚡️ Media Info:</b>
+┠ 🔊 <b>Languages:</b> {language_str}
+┠ 💿 <b>Quality:</b> {quality_str}
+┠ 📺 <b>Type:</b> {primary_tag.replace('#', '')}{epi_block if epi_block else ""}
+
+<b>📖 Plot Summary:</b>
+❝ <i>{plot_text}</i> ❞
+
+───────────────
+  ❤ <b>React</b>  •  🔔 <b>Share</b>  •  📂 <b>Save</b>
+───────────────
+"""
